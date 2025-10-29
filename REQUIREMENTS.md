@@ -58,15 +58,3 @@ CREATE TABLE order_items (
     quantity INTEGER NOT NULL, 
     PRIMARY KEY (order_id, product_id)
     );
-
-
-#### Schema
-
-            List of relations
- Schema |    Name     | Type  |  Owner
---------+-------------+-------+----------
- public | migrations  | table | postgres
- public | order_items | table | postgres
- public | orders      | table | postgres
- public | products    | table | postgres
- public | users       | table | postgres
