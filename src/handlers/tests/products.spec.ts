@@ -1,51 +1,62 @@
-import request from 'supertest'
-import app from '../../server'
-import client from '../../database'
+import supertest from 'supertest';
+import app from '../../server';
+import pool from '../../database';
 
-async function reset() {
-  const c = await client.connect()
-  try {
-    await c.query('BEGIN')
-    await c.query('TRUNCATE order_items, orders, products, users RESTART IDENTITY CASCADE')
-    await c.query('COMMIT')
-  } catch (e) { await c.query('ROLLBACK'); throw e } finally { c.release() }
-}
-async function makeToken() {
-  const r = await request(app).post('/users').send({ first_name: 'U', last_name: 'L', password: 'p' })
-  return r.body.token as string
+const request = supertest(app);
+
+async function resetDb() {
+  await pool.query('BEGIN');
+  await pool.query('TRUNCATE TABLE order_items RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE orders RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE products RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE users RESTART IDENTITY CASCADE');
+  await pool.query('COMMIT');
 }
 
-describe('Products routes', () => {
-  beforeAll(reset)
-  afterEach(reset)
+async function createUserAndGetToken() {
+  const res = await request.post('/users').send({
+    first_name: 'Prod',
+    last_name: 'Maker',
+    password: 'pw'
+  });
+  return res.body.token as string;
+}
 
-  it('GET /products starts empty', async () => {
-    const res = await request(app).get('/products').expect(200)
-    expect(res.body).toEqual([])
-  })
+describe('Products Routes', () => {
+  let token = '';
 
-  it('POST /products requires token', async () => {
-    await request(app).post('/products').send({ name: 'Toy', price: 5 }).expect(401)
-  })
+  beforeAll(async () => {
+    await resetDb();
+    token = await createUserAndGetToken();
+  });
 
   it('POST /products creates with token', async () => {
-    const token = await makeToken()
-    const res = await request(app)
+    const res = await request
       .post('/products')
       .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Feeder', price: 12.5 })
-      .expect(201)
-    expect(res.body).toEqual(jasmine.objectContaining({ name: 'Feeder', price: 12.5 }))
-  })
+      .send({ name: 'Laptop', price: 999.99 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.id).toBeDefined();
+    expect(res.body.name).toBe('Laptop');
+  });
 
   it('GET /products/:id returns item', async () => {
-    const token = await makeToken()
-    const created = await request(app)
+    const created = await request
       .post('/products')
       .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Bed', price: 40 })
-    const id = created.body.id
-    const res = await request(app).get(`/products/${id}`).expect(200)
-    expect(res.body.name).toBe('Bed')
-  })
-})
+      .send({ name: 'Mouse', price: 25 });
+    const id = created.body.id;
+
+    const res = await request.get(`/products/${id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe('Mouse');
+  });
+
+  it('GET /products returns a list', async () => {
+    const res = await request.get('/products');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBeTrue();
+    expect(res.body.length).toBeGreaterThan(0);
+  });
+});

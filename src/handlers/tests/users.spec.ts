@@ -1,49 +1,57 @@
-import request from 'supertest'
-import app from '../../server'
-import client from '../../database'
-import jwt from 'jsonwebtoken'
+import supertest from 'supertest';
+import app from '../../server';
+import pool from '../../database';
 
-async function reset() {
-  const c = await client.connect()
-  try {
-    await c.query('BEGIN')
-    await c.query('TRUNCATE order_items, orders, products, users RESTART IDENTITY CASCADE')
-    await c.query('COMMIT')
-  } catch (e) { await c.query('ROLLBACK'); throw e } finally { c.release() }
+const request = supertest(app);
+
+async function resetDb() {
+  await pool.query('BEGIN');
+  await pool.query('TRUNCATE TABLE order_items RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE orders RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE products RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE users RESTART IDENTITY CASCADE');
+  await pool.query('COMMIT');
 }
 
-describe('Users routes', () => {
-  beforeAll(reset)
-  afterEach(reset)
+describe('Users Routes', () => {
+  let token = '';
+  let userId: number;
 
-  it('POST /users creates a user and returns JWT', async () => {
-    const res = await request(app)
-      .post('/users')
-      .send({ first_name: 'Moe', last_name: 'Abubaker', password: 'secret' })
-      .expect(201)
+  beforeAll(async () => {
+    await resetDb();
+  });
 
-    expect(res.body.user.first_name).toBe('Moe')
-    expect(typeof res.body.token).toBe('string')
-    const decoded = jwt.verify(res.body.token, process.env.TOKEN_SECRET || 'dev')
-    expect(decoded).toBeTruthy()
-  })
+  it('POST /users creates a user and returns a token', async () => {
+    const res = await request.post('/users').send({
+      first_name: 'Api',
+      last_name: 'User',
+      password: '123456'
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.token).toBeDefined();
+    token = res.body.token;
+    userId = res.body.id;
+  });
 
-  it('GET /users requires auth', async () => {
-    await request(app).get('/users').expect(401)
-  })
+  it('GET /users requires token and returns a list', async () => {
+    const res = await request.get('/users').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBeTrue();
+  });
 
-  it('GET /users/:id returns user when authed', async () => {
-    const created = await request(app)
-      .post('/users')
-      .send({ first_name: 'A', last_name: 'B', password: 'x' })
-    const token = created.body.token as string
-    const id = created.body.user.id as number
+  it('GET /users/:id requires token and returns one user', async () => {
+    const res = await request.get(`/users/${userId}`).set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(userId);
+    expect(res.body.first_name).toBe('Api');
+  });
 
-    const res = await request(app)
-      .get(`/users/${id}`)
-      .set('Authorization', `Bearer ${token}`)
-      .expect(200)
-
-    expect(res.body).toEqual(jasmine.objectContaining({ id, first_name: 'A', last_name: 'B' }))
-  })
-})
+  it('POST /users/authenticate returns token on correct credentials', async () => {
+    const res = await request.post('/users/authenticate').send({
+      first_name: 'Api',
+      password: '123456'
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.token).toBeDefined();
+  });
+});

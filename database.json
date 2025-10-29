@@ -2,14 +2,16 @@
   "dev": {
     "driver": "pg",
     "host": "127.0.0.1",
-    "database": "shoppin",
+    "port": 5432,
+    "database": "shopi",
     "user": "postgres",
     "password": "ali122"
   },
   "test": {
     "driver": "pg",
     "host": "127.0.0.1",
-    "database": "shoppintest",
+    "port": 5432,
+    "database": "shopitest",
     "user": "postgres",
     "password": "ali122"
   }

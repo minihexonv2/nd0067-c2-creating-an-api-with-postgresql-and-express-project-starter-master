@@ -1,45 +1,76 @@
-import request from 'supertest'
-import app from '../../server'
-import client from '../../database'
+import supertest from 'supertest';
+import app from '../../server';
+import pool from '../../database';
 
-async function reset() {
-  const c = await client.connect()
-  try {
-    await c.query('BEGIN')
-    await c.query('TRUNCATE order_items, orders, products, users RESTART IDENTITY CASCADE')
-    await c.query('COMMIT')
-  } catch (e) { await c.query('ROLLBACK'); throw e } finally { c.release() }
-}
-async function createUserAndToken() {
-  const r = await request(app).post('/users').send({ first_name: 'X', last_name: 'Y', password: 'z' })
-  return { token: r.body.token as string, userId: r.body.user.id as number }
+const request = supertest(app);
+
+async function resetDb() {
+  await pool.query('BEGIN');
+  await pool.query('TRUNCATE TABLE order_items RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE orders RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE products RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE users RESTART IDENTITY CASCADE');
+  await pool.query('COMMIT');
 }
 
-describe('Orders routes', () => {
-  beforeAll(reset)
-  afterEach(reset)
+async function bootstrapUserProduct() {
+  const u = await request.post('/users').send({
+    first_name: 'OrderApi',
+    last_name: 'User',
+    password: 'pw'
+  });
+  const token = u.body.token as string;
+  const productRes = await request
+    .post('/products')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ name: 'Chair', price: 40 });
 
-  it('GET /orders/current/:user_id requires auth', async () => {
-    await request(app).get('/orders/current/1').expect(401)
-  })
+  return { token, userId: u.body.id as number, productId: productRes.body.id as number };
+}
 
-  it('GET /orders/current/:user_id returns rows for active order', async () => {
-    const { token, userId } = await createUserAndToken()
+describe('Orders Routes', () => {
+  let token = '';
+  let userId = 0;
+  let productId = 0;
+  let orderId = 0;
 
-    // seed active order & items
-    const c = await client.connect()
-    const o = await c.query("INSERT INTO orders (user_id, status) VALUES ($1,'active') RETURNING id", [userId])
-    const oid = o.rows[0].id as number
-    const p = await c.query("INSERT INTO products (name, price) VALUES ('Toy', 5) RETURNING id")
-    await c.query('INSERT INTO order_items (order_id, product_id, quantity) VALUES ($1,$2,3)', [oid, p.rows[0].id])
-    c.release()
+  beforeAll(async () => {
+    await resetDb();
+    const boot = await bootstrapUserProduct();
+    token = boot.token;
+    userId = boot.userId;
+    productId = boot.productId;
+  });
 
-    const res = await request(app)
-      .get(`/orders/current/${userId}`)
+  it('POST /orders creates an order', async () => {
+    const res = await request
+      .post('/orders')
       .set('Authorization', `Bearer ${token}`)
-      .expect(200)
+      .send({ user_id: userId, status: 'active' });
 
-    expect(Array.isArray(res.body)).toBeTrue()
-    expect(res.body[0]).toEqual(jasmine.objectContaining({ id: oid, user_id: userId }))
-  })
-})
+    expect(res.status).toBe(201);
+    expect(res.body.id).toBeDefined();
+    expect(res.body.status).toBe('active');
+    orderId = res.body.id;
+  });
+
+  it('POST /orders/:id/products adds an item', async () => {
+    const res = await request
+      .post(`/orders/${orderId}/products`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ product_id: productId, quantity: 2 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.order_id).toBe(orderId);
+    expect(res.body.product_id).toBe(productId);
+    expect(res.body.quantity).toBe(2);
+  });
+
+  it('GET /users/:id/orders/current returns the current order', async () => {
+    const res = await request.get(`/users/${userId}/orders/current`).set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.user_id).toBe(userId);
+    expect(Array.isArray(res.body.items)).toBeTrue();
+    expect(res.body.items.length).toBe(1);
+  });
+});

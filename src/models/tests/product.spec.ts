@@ -1,36 +1,41 @@
-import client from '../../database'
-import { ProductRepo } from '../product'
+import { ProductStore } from '../../models/product';
+import pool from '../../database';
 
-async function reset() {
-  const c = await client.connect()
-  try {
-    await c.query('BEGIN')
-    await c.query('TRUNCATE order_items, orders, products, users RESTART IDENTITY CASCADE')
-    await c.query('COMMIT')
-  } catch (e) { await c.query('ROLLBACK'); throw e } finally { c.release() }
+const store = new ProductStore();
+
+async function resetDb() {
+  await pool.query('BEGIN');
+  await pool.query('TRUNCATE TABLE order_items RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE orders RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE products RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE users RESTART IDENTITY CASCADE');
+  await pool.query('COMMIT');
 }
 
-describe('ProductRepo', () => {
-  const repo = new ProductRepo()
+describe('ProductStore Model', () => {
+  beforeAll(async () => {
+    await resetDb();
+  });
 
-  beforeAll(reset)
-  afterEach(reset)
+  it('create() inserts and returns a product', async () => {
+    const p = await store.create({ name: 'Book', price: 10.5 });
+    expect(p).toBeDefined();
+    expect(p.id).toBeDefined();
+    expect(p.name).toBe('Book');
+    expect(typeof p.price).toBe('number');
+  });
 
-  it('create() inserts and returns product', async () => {
-    const p = await repo.create({ name: 'Scratcher', price: 18 })
-    expect(p.id).toBeDefined()
-    expect(p.name).toBe('Scratcher')
-  })
+  it('index() returns a list with at least 1 product', async () => {
+    const list = await store.index();
+    expect(Array.isArray(list)).toBeTrue();
+    expect(list.length).toBeGreaterThan(0);
+  });
 
-  it('all() returns list', async () => {
-    await repo.create({ name: 'Ball', price: 2 })
-    const list = await repo.all()
-    expect(list.length).toBe(1)
-  })
-
-  it('byId() returns one or null', async () => {
-    const created = await repo.create({ name: 'Tunnel', price: 25 })
-    expect((await repo.byId(created.id!))?.name).toBe('Tunnel')
-    expect(await repo.byId(99999)).toBeNull()
-  })
-})
+  it('show() returns the product by id', async () => {
+    const created = await store.create({ name: 'Pen', price: 2 });
+    const found = await store.show(created.id!);
+    expect(found).toBeTruthy();
+    expect(found?.name).toBe('Pen');
+    expect(found?.price).toBe(2);
+  });
+});

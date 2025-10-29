@@ -1,40 +1,43 @@
-import { Application, Request, Response } from 'express'
-import { ProductRepo } from '../models/product'
-import { authGuard } from '../middleware/auth'
+import { Application, Request, Response } from 'express';
+import { ProductStore } from '../models/product';
+import { verifyAuthToken } from '../middleware/auth';
 
-const repo = new ProductRepo()
+const store = new ProductStore();
 
 export default function productsRoutes(app: Application) {
-  app.get('/products', list)
-  app.get('/products/:id', getOne)
-  app.post('/products', authGuard, create)
-}
+  app.get('/products', async (_req: Request, res: Response) => {
+    try {
+      const products = await store.index();
+      res.status(200).json(products);
+    } catch {
+      res.status(500).json({ error: 'Failed to list products' });
+    }
+  });
 
-async function list(_req: Request, res: Response) {
-  try {
-    res.json(await repo.all())
-  } catch (e) {
-    res.status(500).json({ error: 'Could not list products' })
-  }
-}
+  app.get('/products/:id', async (req: Request, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+      if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid product id' });
+      const product = await store.show(id);
+      if (!product) return res.status(404).json({ error: 'Not found' });
+      res.status(200).json(product);
+    } catch {
+      res.status(500).json({ error: 'Failed to get product' });
+    }
+  });
 
-async function getOne(req: Request, res: Response) {
-  const id = Number(req.params.id)
-  try {
-    const row = await repo.byId(id)
-    if (!row) return res.status(404).json({ error: 'Not found' })
-    res.json(row)
-  } catch {
-    res.status(500).json({ error: 'Fetch failed' })
-  }
-}
+  app.post('/products', verifyAuthToken, async (req: Request, res: Response) => {
+    try {
+      const { name, price } = req.body ?? {};
+      if (!name || price === undefined) return res.status(400).json({ error: 'name and price are required' });
 
-async function create(req: Request, res: Response) {
-  try {
-    const body = { name: req.body.name, price: Number(req.body.price) }
-    const created = await repo.create(body)
-    res.status(201).json(created)
-  } catch {
-    res.status(400).json({ error: 'Create failed' })
-  }
+      const numericPrice = Number(price);
+      if (Number.isNaN(numericPrice)) return res.status(400).json({ error: 'price must be a number' });
+
+      const created = await store.create({ name, price: numericPrice });
+      res.status(201).json(created);
+    } catch {
+      res.status(500).json({ error: 'Failed to create product' });
+    }
+  });
 }

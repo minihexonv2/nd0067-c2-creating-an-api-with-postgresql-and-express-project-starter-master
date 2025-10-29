@@ -1,41 +1,54 @@
-import client from '../../database'
-import { OrderRepo } from '../order'
-import { ProductRepo } from '../product'
+import { ProductStore } from '../../models/product';
+import { UserStore } from '../../models/user';
+import { OrderStore } from '../../models/order';
+import pool from '../../database';
 
-async function reset() {
-  const c = await client.connect()
-  try {
-    await c.query('BEGIN')
-    await c.query('TRUNCATE order_items, orders, products, users RESTART IDENTITY CASCADE')
-    await c.query('COMMIT')
-  } catch (e) { await c.query('ROLLBACK'); throw e } finally { c.release() }
+const products = new ProductStore();
+const users = new UserStore();
+const orders = new OrderStore();
+
+async function resetDb() {
+  await pool.query('BEGIN');
+  await pool.query('TRUNCATE TABLE order_items RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE orders RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE products RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE users RESTART IDENTITY CASCADE');
+  await pool.query('COMMIT');
 }
 
-describe('OrderRepo', () => {
-  const repo = new OrderRepo()
-  const products = new ProductRepo()
+describe('OrderStore Model', () => {
+  let userId: number;
+  let productId: number;
+  let orderId: number;
 
-  beforeAll(reset)
-  afterEach(reset)
+  beforeAll(async () => {
+    await resetDb();
+    const u = await users.create({ first_name: 'Order', last_name: 'Owner', password: 'pw' });
+    userId = u.id!;
+    const p = await products.create({ name: 'Widget', price: 5 });
+    productId = p.id!;
+  });
 
-  it('currentForUser() returns null when no active order', async () => {
-    expect(await repo.currentForUser(1)).toBeNull()
-  })
+  it('create() creates an order', async () => {
+    const o = await orders.create({ user_id: userId, status: 'active' });
+    expect(o).toBeDefined();
+    orderId = o.id!;
+    expect(o.status).toBe('active');
+  });
 
-  it('currentForUser() returns flat rows for active order', async () => {
-    const c = await client.connect()
-    try {
-      const u = await c.query("INSERT INTO users (first_name,last_name,password) VALUES ('U','L','x') RETURNING id")
-      const uid = u.rows[0].id as number
-      const p1 = await products.create({ name: 'Toy', price: 6 })
-      const o = await c.query("INSERT INTO orders (user_id, status) VALUES ($1,'active') RETURNING id", [uid])
-      const oid = o.rows[0].id as number
-      await c.query('INSERT INTO order_items (order_id, product_id, quantity) VALUES ($1,$2,2)', [oid, p1.id])
+  it('addItem() adds a product to the order', async () => {
+    const item = await orders.addItem({ order_id: orderId, product_id: productId, quantity: 3 });
+    expect(item.order_id).toBe(orderId);
+    expect(item.product_id).toBe(productId);
+    expect(item.quantity).toBe(3);
+  });
 
-      const rows = await repo.currentForUser(uid)
-      expect(rows).not.toBeNull()
-      expect(rows!.length).toBe(1)
-      expect(rows![0]).toEqual(jasmine.objectContaining({ id: oid, user_id: uid }))
-    } finally { c.release() }
-  })
-})
+  it('currentByUser() returns the active order with items', async () => {
+    const cur = await orders.currentByUser(userId);
+    expect(cur).toBeTruthy();
+    expect(cur.user_id).toBe(userId);
+    expect(Array.isArray(cur.items)).toBeTrue();
+    expect(cur.items.length).toBe(1);
+    expect(cur.items[0].quantity).toBe(3);
+  });
+});

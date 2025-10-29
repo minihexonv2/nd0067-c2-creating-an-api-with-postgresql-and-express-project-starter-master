@@ -1,37 +1,53 @@
-import client from '../../database'
-import { UserRepo } from '../user'
+import { UserStore } from '../../models/user';
+import pool from '../../database';
 
-async function reset() {
-  const c = await client.connect()
-  try {
-    await c.query('BEGIN')
-    await c.query('TRUNCATE order_items, orders, products, users RESTART IDENTITY CASCADE')
-    await c.query('COMMIT')
-  } catch (e) { await c.query('ROLLBACK'); throw e } finally { c.release() }
+const store = new UserStore();
+
+async function resetDb() {
+  await pool.query('BEGIN');
+  await pool.query('TRUNCATE TABLE order_items RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE orders RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE products RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE TABLE users RESTART IDENTITY CASCADE');
+  await pool.query('COMMIT');
 }
 
-describe('UserRepo', () => {
-  const repo = new UserRepo()
+describe('UserStore Model', () => {
+  beforeAll(async () => {
+    await resetDb();
+  });
 
-  beforeAll(reset)
-  afterEach(reset)
+  it('create() stores a user and returns public fields', async () => {
+    const u = await store.create({ first_name: 'Mo', last_name: 'Tester', password: 'pass123' });
+    expect(u).toBeDefined();
+    expect(u.id).toBeDefined();
+    expect(u.first_name).toBe('Mo');
+    expect((u as any).password).toBeUndefined();
+  });
 
-  it('create() hashes and returns public fields', async () => {
-    const u = await repo.create({ first_name: 'Moe', last_name: 'Abubaker', password: 'secret' })
-    expect(u.id).toBeDefined()
-    // @ts-expect-error password not exposed
-    expect(u.password).toBeUndefined()
-  })
+  it('index() lists users', async () => {
+    const list = await store.index();
+    expect(list.length).toBeGreaterThan(0);
+    expect((list[0] as any).password).toBeUndefined();
+  });
 
-  it('all() returns array', async () => {
-    await repo.create({ first_name: 'A', last_name: 'B', password: 'x' })
-    const users = await repo.all()
-    expect(users.length).toBe(1)
-  })
+  it('show() returns a single user without password', async () => {
+    const created = await store.create({ first_name: 'A', last_name: 'B', password: 'x' });
+    const found = await store.show(created.id!);
+    expect(found).toBeTruthy();
+    expect(found?.first_name).toBe('A');
+    expect((found as any).password).toBeUndefined();
+  });
 
-  it('byId() gets one', async () => {
-    const u = await repo.create({ first_name: 'X', last_name: 'Y', password: 'z' })
-    const got = await repo.byId(u.id!)
-    expect(got?.first_name).toBe('X')
-  })
-})
+  it('authenticate() returns user on correct credentials', async () => {
+    await store.create({ first_name: 'Auth', last_name: 'Ok', password: 'secret' });
+    const auth = await store.authenticate('Auth', 'secret');
+    expect(auth).toBeTruthy();
+    expect(auth?.first_name).toBe('Auth');
+  });
+
+  it('authenticate() returns null on wrong password', async () => {
+    const bad = await store.authenticate('Auth', 'wrong');
+    expect(bad).toBeNull();
+  });
+});

@@ -1,32 +1,30 @@
-import express from 'express'
-import dotenv from 'dotenv'
-import cors from 'cors'
-import bodyParser from 'body-parser'
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import registerRoutes from './handlers';
 
-dotenv.config({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' })
+dotenv.config();
 
-import productsRoutes from './handlers/products'
-import usersRoutes from './handlers/users'
-import ordersRoutes from './handlers/orders'
-
-const app = express()
+const app = express();
 
 
-const corsOptions: cors.CorsOptions = {
-   origin: 'http://localhost:3000',
-   optionsSuccessStatus: 200
-}
-app.use(cors(corsOptions))
-app.use(bodyParser.json())
-app.use(bodyParser.urlencoded({ extended: true }))
+app.use(cors());
+app.use(express.json());
 
-productsRoutes(app)
-usersRoutes(app)
-ordersRoutes(app)
 
-const port = process.env.PORT || 3000
-if (process.env.NODE_ENV !== 'test') {
-  app.listen(port, () => console.log(`Server listening on :${port}`))
+registerRoutes(app);
+
+
+app.get('/', (_req, res) => res.send('server is running'));
+
+const port = Number(process.env.PORT || 3001);
+
+
+if (process.env.ENV !== 'test') {
+  app.listen(port, () => {
+    
+    console.log(`Server listening on :${port}`);
+  });
 }
 
-export default app
+export default app;
