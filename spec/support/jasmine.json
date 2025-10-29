@@ -1,0 +1,6 @@
+{
+ "spec_dir": "src",
+  "spec_files": ["handlers/tests/**/*.spec.ts", "models/tests/**/*.spec.ts"],
+  "helpers": [],
+  "random": false
+}
