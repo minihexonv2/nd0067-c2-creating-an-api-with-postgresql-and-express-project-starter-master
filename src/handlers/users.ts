@@ -7,7 +7,7 @@ import * as Auth from '../middleware/auth';
 const verifyAuthToken: (req: Request, res: Response, next: NextFunction) => void =
   typeof (Auth as any).verifyAuthToken === 'function'
     ? (Auth as any).verifyAuthToken
-    : (_req: Request, _res: Response, next: NextFunction) => next(); // graceful no-op fallback
+    : (_req: Request, _res: Response, next: NextFunction) => next();
 
 const store = new UserStore();
 
